@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>PONG | ARCADE EDITION v6.0-dev</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body { margin: 0; background: #000; color: #0f0; font-family: 'Press Start 2P', cursive; overflow: hidden; }
+        canvas { display: block; image-rendering: pixelated; }
+        .crt::before { content: ""; display: block; position: absolute; inset: 0; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.02)); z-index: 5; background-size: 100% 3px, 2px 100%; pointer-events: none; }
+        #ui-layer { position: absolute; inset: 0; display: flex; justify-content: center; align-items: center; pointer-events: none; z-index: 10; }
+        .overlay { pointer-events: auto; text-align: center; border: 4px solid #0f0; padding: 30px; background: rgba(0,0,0,0.95); min-width: 550px; box-shadow: 0 0 20px #040; }
+        button { background: transparent; border: 2px solid #0f0; color: #0f0; padding: 15px; font-family: inherit; cursor: pointer; margin: 5px; font-size: 10px; text-transform: uppercase; transition: 0.1s; }
+        button:hover { background: #0f0; color: #000; }
+        input { background: #000; border: 2px solid #0f0; color: #0f0; padding: 12px; font-family: inherit; text-align: center; margin-bottom: 25px; outline: none; width: 85%; }
+        .row { display: flex; justify-content: center; gap: 10px; margin-bottom: 10px; width: 95%; margin-left: auto; margin-right: auto; }
+        .btn-full { width: 95%; }
+        .logs-table { width: 100%; border-collapse: collapse; font-size: 8px; margin-top: 15px; }
+        .logs-table th { color: #050; text-align: left; padding-bottom: 10px; font-size: 7px; }
+        .logs-table td { padding: 12px 0; border-bottom: 1px solid #020; text-align: left; }
+        .footer { margin-top: 30px; border-top: 2px solid #030; padding-top: 15px; }
+        .dev-id { font-size: 8px; color: #0a0; letter-spacing: 2px; }
+        .purge-btn { border: none; color: #222; font-size: 7px; margin-top: 20px; display: block; width: 100%; text-decoration: underline; background: transparent; cursor: pointer; }
+        #leads-container { max-height: 280px; overflow-y: auto; scrollbar-width: none; }
+        #leads-container::-webkit-scrollbar { display: none; }
+        .ingame { cursor: none; }
+        .blink { animation: blinker 1s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0; } }
+    </style>
+</head>
+<body class="crt">
+<div id="ui-layer">
+    <div id="menu" class="overlay">
+        <h1 style="font-size: 28px; margin-bottom: 30px; letter-spacing: 6px;">PONG ARCADE</h1>
+        <input type="text" id="p-name" maxlength="10" placeholder="ENTER INITIALS">
+        <br>
+        <div class="row">
+            <button onclick="init(true, 'lazy')" style="flex:1">TRAINING</button>
+            <button onclick="init(true, 'hard')" style="flex:1">1 PLAYER</button>
+        </div>
+        <button class="btn-full" onclick="init(false, 'hard')">2 PLAYERS (VERSUS)</button>
+        <div style="margin: 25px 0;">
+            <div id="top3" style="font-size: 9px; color: #0a0; line-height: 2;"></div>
+            <button onclick="showFullStats()" style="font-size: 8px; padding: 5px 15px; margin-top: 15px;">HIGH SCORES</button>
+        </div>
+        <div class="footer">
+            <div class="dev-id">DESIGNED BY N0FATE666</div>
+            <div style="font-size: 6px; color: #030; margin-top: 8px;">© 2026 ARCADE CORP</div>
+        </div>
+    </div>
+
+    <div id="full-leads" class="overlay" style="display:none">
+        <h2 style="font-size: 18px; margin-bottom: 20px;">HALL OF FAME</h2>
+        <div id="leads-container">
+            <table class="logs-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40%;">PILOT</th>
+                        <th style="width: 30%;">SCORE</th>
+                        <th style="width: 30%; text-align: right;">DATE</th>
+                    </tr>
+                </thead>
+                <tbody id="leads-all"></tbody>
+            </table>
+        </div>
+        <button onclick="closeFullStats()" style="margin-top:25px">BACK</button>
+        <button class="purge-btn" onclick="purgeStats()">MEMORY CLEAR</button>
+    </div>
+
+    <div id="pause-menu" class="overlay" style="display:none">
+        <h1 style="font-size: 32px;" class="blink">PAUSED</h1>
+        <button onclick="togglePause()">CONTINUE</button>
+        <button onclick="location.reload()">EXIT</button>
+    </div>
+
+    <div id="game-over" class="overlay" style="display:none">
+        <h1 id="win-msg" style="font-size: 30px; margin-bottom: 20px;"></h1>
+        <p id="match-rank" style="color: #ff0; font-size: 14px; margin: 20px 0;"></p>
+        <p id="match-score" style="font-size: 10px; opacity: 0.5; margin-bottom: 25px;"></p>
+        <button onclick="location.reload()" class="blink">INSERT COIN</button>
+    </div>
+</div>
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d', { alpha: false });
+let W, H, p1y, p2y, bx, by, vx=0, vy=0, s1=0, s2=0;
+let isPC, running=false, paused=false, p_h, p_w, ballSize, difficulty='hard';
+let startTime, currentNick = "AAA", trail = [], flash1 = 0, flash2 = 0, lastDir = 1;
+const keys = {};
+
+const RANKS_HARD = [
+    { min: 3501, name: "GHOST" }, { min: 2501, name: "OPERATOR" },
+    { min: 1801, name: "CYBER-ACE" }, { min: 1201, name: "PILOT" },
+    { min: 701,  name: "HUNTER" }, { min: 301,  name: "SCOUT" },
+    { min: 0,    name: "RECRUIT" }
+];
+
+const RANKS_LAZY = [
+    { min: 801, name: "CASUAL" }, { min: 501, name: "NOOB" },
+    { min: 301, name: "SLOTH" },  { min: 151, name: "POTATO" },
+    { min: 51,  name: "CANCER" }, { min: 0,   name: "SKUF" }
+];
+
+function resize() {
+    W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight;
+    p_h = H * 0.18; p_w = Math.max(12, W * 0.01); ballSize = W * 0.012;
+    if(!running) { bx = W/2; by = H/2; p1y = p2y = H/2 - p_h/2; }
+}
+window.onresize = resize; resize();
+
+window.onkeydown = e => { if (e.code === "Escape" && running) togglePause(); keys[e.code] = true; };
+window.onkeyup = e => keys[e.code] = false;
+
+function togglePause() {
+    paused = !paused;
+    document.getElementById('pause-menu').style.display = paused ? 'block' : 'none';
+    if(!paused) { 
+        document.body.classList.add('ingame'); 
+        // Если мяч застрял при выходе из паузы, пускаем его
+        if (vx === 0 && vy === 0) startPhysics(lastDir);
+        requestAnimationFrame(loop); 
+    }
+    else document.body.classList.remove('ingame');
+}
+
+function clampPaddle(y) {
+    const limit = p_h / 2;
+    return Math.max(-limit, Math.min(H - p_h + limit, y));
+}
+
+canvas.onmousemove = e => { if(isPC && running && !paused) p1y = clampPaddle(e.clientY - p_h/2); };
+
+function updateLeadsUI() {
+    let leads = JSON.parse(localStorage.getItem('pong_top10') || '[]');
+    leads.sort((a,b) => b.score - a.score);
+    document.getElementById('top3').innerHTML = leads.slice(0,3).map((l, i) => 
+        `${i+1}ST ${l.name} - ${l.score.toFixed(0)}`
+    ).join('<br>') || "NO ENTRIES";
+    document.getElementById('leads-all').innerHTML = leads.map((l, i) => `
+        <tr>
+            <td>${l.name}<br><span style="font-size:7px; color:${l.diff==='hard'?'#0f0':'#0a0'}">${l.rank}</span></td>
+            <td>${Math.floor(l.score)}</td>
+            <td style="text-align:right; font-size:6px; color:#040; letter-spacing:0px;">${l.date || '--.--'}</td>
+        </tr>
+    `).join('');
+}
+
+function purgeStats() { if(confirm("CLEAR ALL?")) { localStorage.removeItem('pong_top10'); updateLeadsUI(); } }
+function showFullStats() { document.getElementById('menu').style.display='none'; document.getElementById('full-leads').style.display='block'; }
+function closeFullStats() { document.getElementById('full-leads').style.display='none'; document.getElementById('menu').style.display='block'; }
+
+function init(pc, diff) {
+    isPC = pc; difficulty = diff; currentNick = document.getElementById('p-name').value.toUpperCase() || "AAA";
+    running = true; paused = false; s1=0; s2=0; startTime = Date.now();
+    document.getElementById('menu').style.display = 'none';
+    document.body.classList.add('ingame');
+    resetBall(1); requestAnimationFrame(loop);
+}
+
+function startPhysics(dir) {
+    let spd = (difficulty === 'hard') ? 0.008 : 0.005;
+    vx = (W * spd) * dir; vy = (Math.random()-0.5) * (H * 0.009);
+}
+
+function resetBall(dir) {
+    vx = 0; vy = 0; trail = []; lastDir = dir;
+    bx = (dir === 1) ? (W*0.05 + p_w + ballSize) : (W*0.95 - p_w - ballSize);
+    by = (dir === 1) ? (p1y + p_h/2) : (p2y + p_h/2);
+    setTimeout(() => { 
+        if(running && !paused) startPhysics(dir);
+    }, 800);
+}
+
+function update() {
+    if(!running || paused) return;
+    if(flash1 > 0) flash1 -= 10; if(flash2 > 0) flash2 -= 10;
+    
+    if(!isPC && keys["KeyW"]) p1y = clampPaddle(p1y - 12);
+    if(!isPC && keys["KeyS"]) p1y = clampPaddle(p1y + 12);
+
+    if(isPC) {
+        let ai_base = (difficulty === 'hard') ? 0.07 : 0.04;
+        p2y = clampPaddle(p2y + (by - (p2y + p_h/2)) * (ai_base + s1 * 0.006));
+    } else {
+        if(keys["ArrowUp"]) p2y = clampPaddle(p2y - 12);
+        if(keys["ArrowDown"]) p2y = clampPaddle(p2y + 12);
+    }
+
+    if(vx !== 0) {
+        trail.push({x: bx, y: by, p1y: p1y, p2y: p2y}); if(trail.length > 10) trail.shift();
+        bx += vx; by += vy;
+        if(by < ballSize/2 || by > H - ballSize/2) { vy *= -1; by = (by < ballSize/2) ? ballSize/2 : H - ballSize/2; }
+        let p1x = W * 0.05, p2x = W * 0.95 - p_w;
+        if(vx < 0 && bx - ballSize/2 < p1x + p_w && bx > p1x && by > p1y && by < p1y + p_h) {
+            vx = Math.abs(vx) * 1.03; vy = ((by - (p1y + p_h/2)) / (p_h/2)) * Math.abs(vx) * 0.8; bx = p1x + p_w + ballSize/2 + 1; flash1 = 255;
+        }
+        if(vx > 0 && bx + ballSize/2 > p2x && bx < p2x + p_w && by > p2y && by < p2y + p_h) {
+            vx = -Math.abs(vx) * 1.03; vy = ((by - (p2y + p_h/2)) / (p_h/2)) * Math.abs(vx) * 0.8; bx = p2x - ballSize/2 - 1; flash2 = 255;
+        }
+        if(bx < 0) { s2++; resetBall(1); } if(bx > W) { s1++; resetBall(-1); }
+        if(s1 >= 10 || s2 >= 10) finishMatch(s1 >= 10 ? 1 : 2);
+    }
+}
+
+function draw() {
+    ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle = '#020'; ctx.lineWidth = 2; ctx.setLineDash([15, 15]);
+    ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
+    ctx.font = '60px "Press Start 2P"'; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+    ctx.fillText(s1.toString(), W/2 - 150, 100); ctx.fillText(s2.toString(), W/2 + 150, 100);
+    trail.forEach((t, i) => {
+        if(difficulty === 'lazy' && i % 2 === 0) return;
+        let alpha = (difficulty === 'hard') ? (i / 10) * 0.5 : (i / 10) * 0.2;
+        ctx.fillStyle = `rgba(0, 255, 0, ${alpha})`;
+        ctx.fillRect(t.x - ballSize/2, t.y - ballSize/2, ballSize, ballSize);
+        ctx.fillRect(W*0.05, t.p1y, p_w, p_h);
+        ctx.fillRect(W*0.95 - p_w, t.p2y, p_w, p_h);
+    });
+    ctx.shadowBlur = (difficulty === 'hard') ? 15 : 5; ctx.shadowColor = '#0f0';
+    ctx.fillStyle = `rgb(${flash1}, 255, ${flash1})`; ctx.fillRect(W*0.05, p1y, p_w, p_h);
+    ctx.fillStyle = `rgb(${flash2}, 255, ${flash2})`; ctx.fillRect(W*0.95 - p_w, p2y, p_w, p_h);
+    ctx.fillStyle = '#0f0'; ctx.fillRect(bx - ballSize/2, by - ballSize/2, ballSize, ballSize);
+    ctx.shadowBlur = 0;
+}
+
+function finishMatch(winner) {
+    running = false; document.body.classList.remove('ingame');
+    if(!isPC) {
+        document.getElementById('game-over').style.display = 'block';
+        document.getElementById('win-msg').innerText = `PLAYER ${winner} WINS`;
+        document.getElementById('match-rank').innerText = "GREAT BOUT";
+        document.getElementById('match-score').innerText = "";
+        return;
+    }
+    let duration = (Date.now() - startTime) / 1000;
+    let now = new Date();
+    let dateStr = `${now.getDate().toString().padStart(2,'0')}.${(now.getMonth()+1).toString().padStart(2,'0')} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}`;
+
+    let baseScore = ((s1 * 100) - (s2 * 45)) * (60 / (duration * 0.6));
+    if (baseScore < 0) baseScore = s1 * 10;
+    
+    let score = baseScore;
+    if(difficulty === 'lazy') score *= 0.7;
+    
+    let list = (difficulty === 'hard') ? RANKS_HARD : RANKS_LAZY;
+    let finalRank = "UNKNOWN";
+    for(let r of list) { if(score >= r.min) { finalRank = r.name; break; } }
+
+    let leads = JSON.parse(localStorage.getItem('pong_top10') || '[]');
+    leads.push({ name: currentNick, score: score, rank: finalRank, diff: difficulty, date: dateStr });
+    leads.sort((a,b) => b.score - a.score);
+    localStorage.setItem('pong_top10', JSON.stringify(leads.slice(0, 15)));
+    
+    updateLeadsUI();
+    document.getElementById('game-over').style.display = 'block';
+    document.getElementById('win-msg').innerText = winner === 1 ? "GAME CLEAR" : "GAME OVER";
+    document.getElementById('match-rank').innerText = `RANK: ${finalRank}`;
+    document.getElementById('match-score').innerText = `SCORE: ${Math.floor(score)}`;
+}
+function loop() { if(!running || paused) return; update(); draw(); requestAnimationFrame(loop); }
+updateLeadsUI();
+</script>
+</body>
+</html>
